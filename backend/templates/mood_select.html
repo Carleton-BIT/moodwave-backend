@@ -1,0 +1,17 @@
+<h2>Select Your Mood</h2>
+
+<form method="POST">
+  {% csrf_token %}
+  <select name="mood">
+    <option value="Euphoric">Euphoric</option>
+    <option value="Hype / Motivated">Hype / Motivated</option>
+    <option value="Dreamy / Atmospheric">Dreamy / Atmospheric</option>
+    <option value="Romantic / Warm">Romantic / Warm</option>
+    <option value="Melancholy / Sad">Melancholy / Sad</option>
+    <option value="Dark / Gritty">Dark / Gritty</option>
+    <option value="Chill / Lo-Fi">Chill / Lo-Fi</option>
+    <option value="Focus / Neutral">Focus / Neutral</option>
+  </select>
+
+  <button type="submit">Get Songs</button>
+</form>

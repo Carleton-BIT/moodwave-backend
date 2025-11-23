@@ -1,4 +1,0 @@
-django
-requests
-djangorestframework
-django-cors-headers

@@ -1,5 +1,5 @@
 """
-URL configuration for todoproject project.
+URL configuration for term_project project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
     https://docs.djangoproject.com/en/5.2/topics/http/urls/
@@ -16,10 +16,8 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from rest_framework.authtoken.views import obtain_auth_token
 
 urlpatterns = [
-    path('api-token-auth/', obtain_auth_token),
+    path('', include('MoodWave.urls')),
     path('admin/', admin.site.urls),
-    path('', include('todoapp.urls'))
 ]

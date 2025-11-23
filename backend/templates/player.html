@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ track.name }} – MoodWave</title>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+</head>
+
+<body class="bg-dark text-white">
+
+<div class="container mt-5 text-center">
+
+    <h6 class="text-muted">
+        {% if playlist_mood %}
+            {{ playlist_mood }} · {{ position|add:1 }}/{{ playlist_length }}
+        {% else %}
+            Track {{ position|add:1 }} of {{ playlist_length }}
+        {% endif %}
+    </h6>
+
+    <h2 class="mt-2">{{ track.name }}</h2>
+    <p class="mb-3">{{ track.artists|join:", " }}</p>
+
+    {% if track.album_image %}
+        <img src="{{ track.album_image }}" class="img-fluid rounded mb-4" style="max-width:250px;">
+    {% endif %}
+
+    {% if track.soundcloud_url %}
+        <iframe
+            width="100%"
+            height="180"
+            scrolling="no"
+            frameborder="no"
+            allow="autoplay"
+            src="https://w.soundcloud.com/player/?url={{ track.soundcloud_url }}">
+        </iframe>
+    {% else %}
+        <p>No SoundCloud audio available.</p>
+    {% endif %}
+
+    <!-- Playback controls -->
+    <div class="mt-4 d-flex justify-content-center gap-3">
+        {% if prev_index is not None %}
+            <a href="{% url 'player' prev_index %}" class="btn btn-outline-light">
+                ⏮ Prev
+            </a>
+        {% endif %}
+
+        {% if next_index is not None %}
+            <a href="{% url 'player' next_index %}" class="btn btn-outline-light">
+                Next ⏭
+            </a>
+        {% endif %}
+    </div>
+
+    <!-- Save playlist -->
+    <form method="POST" action="{% url 'save_playlist' %}" class="mt-4">
+        {% csrf_token %}
+        <input type="text"
+               name="name"
+               class="form-control mb-2 text-center"
+               placeholder="Playlist name"
+               value="{% if playlist_mood %}{{ playlist_mood }} mood mix{% else %}MoodWave Playlist{% endif %}">
+        <button class="btn btn-success">Save this playlist</button>
+    </form>
+
+    <a href="{% url 'index' %}" class="btn btn-secondary mt-4">Back to moods</a>
+
+</div>
+
+</body>
+</html>

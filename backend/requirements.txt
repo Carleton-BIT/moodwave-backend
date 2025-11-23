@@ -1,0 +1,11 @@
+django~=5.0
+python-dotenv
+djangorestframework
+django-cors-headers
+textblob
+bs4
+lyricsgenius
+beautifulsoup4
+requests
+html5lib
+unidecode

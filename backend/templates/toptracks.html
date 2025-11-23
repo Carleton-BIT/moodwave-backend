@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Your Top Spotify Tracks</title>
+</head>
+<body>
+  <h1>Your Top Spotify Songs</h1>
+
+  {% if top_tracks %}
+    <table border="1" cellpadding="10" cellspacing="0">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Album Cover</th>
+          <th>Song Name</th>
+          <th>Artist</th>
+          <th>Album</th>
+          <th>Spotify Link</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for track in top_tracks %}
+          <tr>
+            <td>{{ forloop.counter }}</td>
+            <td>
+              {% if track.album_image %}
+                <img src="{{ track.album_image }}" alt="{{ track.name }}" width="50">
+              {% else %}
+                No Image
+              {% endif %}
+            </td>
+            <td>{{ track.name }}</td>
+            <td>{{ track.artist }}</td>
+            <td>{{ track.album_name }}</td>
+              <td>{{ track.mood }}</td>
+            <td><a href="{{ track.spotify_url }}" target="_blank">Listen</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No top tracks found. Connect your Spotify account first.</p>
+  {% endif %}
+
+  <br>
+  <a href="{% url 'index' %}">Back to Dashboard</a>
+</body>
+</html>
