@@ -15,6 +15,11 @@ class UserProfile(models.Model):
     refresh_token = models.CharField(max_length=512, blank=True, null=True)
     token_expires_at = models.DateTimeField(blank=True, null=True)
 
+
+    sync_total = models.IntegerField(default=0)
+    sync_done = models.IntegerField(default=0)
+    sync_in_progress = models.BooleanField(default=False)
+
     # User's audio preference (from user's top tracks/artists)
     avg_acousticness = models.FloatField(blank=True, null=True)
     avg_danceability = models.FloatField(blank=True, null=True)

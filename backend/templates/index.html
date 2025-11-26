@@ -25,6 +25,22 @@
         <div class="spinner-border text-primary" role="status"></div>
     </div>
 
+    {% if sync_in_progress %}
+<div class="text-center mb-4">
+    <h4>Syncing your vibe…</h4>
+
+    <div class="progress" style="height: 25px;">
+        <div class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+             style="width: {{ progress_percent }}%;">
+        </div>
+    </div>
+
+    <p class="mt-2">
+        {{ sync_done }} / {{ sync_total }} tracks processed
+    </p>
+</div>
+{% endif %}
+
     <!-- Mood Selector -->
     <div class="card p-3 mb-4">
         <h4>Select a Mood</h4>

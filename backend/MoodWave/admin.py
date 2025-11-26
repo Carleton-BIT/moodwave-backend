@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.contrib.auth import models
+
 from .models import (
     UserProfile,
     Track,
@@ -24,6 +26,7 @@ class UserProfileAdmin(admin.ModelAdmin):
     search_fields = ("user__username", "spotify_id")
     list_filter = ("created_at", "last_profile_update")
     readonly_fields = ("created_at", "last_profile_update")
+
 
     filter_horizontal = ("tracks",)
     inlines = [UserPlaylistInline]

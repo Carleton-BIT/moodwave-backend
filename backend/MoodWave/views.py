@@ -1,4 +1,5 @@
 import base64
+import threading
 from datetime import timedelta
 import requests
 from django.contrib import messages
@@ -6,6 +7,9 @@ from django.contrib.auth import login, logout as django_logout
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.http import HttpResponse
+from rest_framework.decorators import authentication_classes, permission_classes, api_view
+from rest_framework.permissions import AllowAny
+import time
 from django.shortcuts import render, redirect
 from django.utils import timezone
 from term_project import settings
@@ -13,6 +17,9 @@ from .forms import SignUpForm
 from .models import UserProfile, Track, Playlist, PlaylistTrack
 from .services.spotify_service import build_user_audio_profile_from_spotify, get_user_top_tracks
 
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
 @login_required(login_url='/login')
 def index(request):
     profile = request.user.userprofile
@@ -20,6 +27,16 @@ def index(request):
     # If no Spotify connected, ask user to connect
     if not profile.access_token:
         return redirect('spotify_login')
+
+    if request.session.get("needs_sync", False):
+        def run_sync():
+            build_user_audio_profile_from_spotify(profile, limit=30)
+            print("Background mood sync completed")
+
+        threading.Thread(target=run_sync, daemon=True).start()
+        request.session["needs_sync"] = False  # prevent running twice
+
+        messages.info(request, "Syncing your vibe in the background…")
 
     moods = (
         Track.objects
@@ -49,12 +66,22 @@ def index(request):
             request.session["current_playlist"] = [t.id for t in songs]
             request.session["current_playlist_mood"] = selected_mood
 
+    sync_total = int(profile.sync_total or 0)
+    sync_done = int(profile.sync_done or 0)
+    progress_percent = 0
+    if profile.sync_total > 0:
+        progress_percent = int((sync_done / sync_total) * 100)
+
     context = {
         "moods": moods,
         "genres": genres,
         "songs": songs,
+        # add converted numeric fields to template
+        "sync_total": sync_total,
+        "sync_done": sync_done,
+        "sync_in_progress": profile.sync_in_progress,
+        "progress_percent": progress_percent,
     }
-
     return render(request, "index.html", context)
 
 
@@ -183,6 +210,17 @@ def create_playlist(user, playlist_name, track_ids):
 
     return playlist
 
+@login_required
+def sync_progress(request):
+    p = request.user.userprofile
+    return JsonResponse({
+        "in_progress": p.sync_in_progress,
+        "done": p.sync_done,
+        "total": p.sync_total,
+        "percent": int((p.sync_done / max(p.sync_total, 1)) * 100),
+    })
+
+
 
 #Spotify authentication
 SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
@@ -267,7 +305,6 @@ def spotify_callback(request):
     except Exception:
         pass
 
-    messages.success(request, "Spotify connected successfully.")
     return redirect('index')
 
 

@@ -83,6 +83,11 @@ def build_user_audio_profile_from_spotify(profile, limit=30):
     access_token = refresh_access_token(profile)
     top_tracks = get_user_top_tracks(access_token, limit)
 
+    profile.sync_in_progress = True
+    profile.sync_done = 0
+    profile.sync_total = limit
+    profile.save(update_fields=["sync_in_progress", "sync_done", "sync_total"])
+
     for t in top_tracks:
         #Fetch global Track object
         track_obj, created = Track.objects.get_or_create(
@@ -139,6 +144,9 @@ def build_user_audio_profile_from_spotify(profile, limit=30):
                 track_obj.soundcloud_url = sc["soundcloud_url"]
 
         track_obj.save()
+
+        profile.sync_done += 1
+        profile.save(update_fields=["sync_done"])
 
 
 def recommend_tracks_for_mood(profile, selected_mood, selected_genre=None, limit=20):
