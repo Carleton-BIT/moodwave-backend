@@ -1,0 +1,13 @@
+MOOD_DESCRIPTIONS = {
+    "Romantic": "SOFT • HEARTFELT • WARM",
+    "Euphoric": "PURE ENERGY • BRIGHT • LIFTED",
+    "Warm": "FLOATY • DREAMLIKE • GLOWING",
+    "Hype": "FOCUSED • CHARGED • READY",
+    "Dark": "POWERFUL • BROODING • HEAVY",
+    "Sad": "SOFT PAIN • MEMORY-LADEN",
+    "Melancholy": "GENTLE SORROW • QUIET • BLUE",
+    "Calm": "STILL • BALANCED • SERENE",
+    "Moody": "REFLECTIVE • SHADOWED • DEEP",
+    "Ambient": "DRIFTING • WEIGHTLESS • OPEN",
+    "Neutral": "UNDEFINED • EXPLORING • BETWEEN STATES",
+}

@@ -4,10 +4,8 @@ from django.contrib.auth import models
 from .models import (
     UserProfile,
     Track,
-    TrackInteraction,
     Playlist,
     PlaylistTrack,
-    UserTrack,
 )
 
 
@@ -20,15 +18,14 @@ class UserPlaylistInline(admin.TabularInline):
     fields = ("name", "created_at")
     readonly_fields = ("created_at",)
 
+
+
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
     list_display = ("user", "spotify_id", "created_at", "last_profile_update")
     search_fields = ("user__username", "spotify_id")
     list_filter = ("created_at", "last_profile_update")
     readonly_fields = ("created_at", "last_profile_update")
-
-
-    filter_horizontal = ("tracks",)
     inlines = [UserPlaylistInline]
 
 # -----------------------------------------------------
@@ -67,6 +64,7 @@ class PlaylistTrackInline(admin.TabularInline):
     autocomplete_fields = ("track",)
 
 
+
 # -----------------------------------------------------
 # Playlist Admin
 # -----------------------------------------------------
@@ -88,24 +86,5 @@ class PlaylistTrackAdmin(admin.ModelAdmin):
     search_fields = ("playlist__name", "track__name")
     list_filter = ("added_at",)
 
-
-# -----------------------------------------------------
-# UserTrack Admin
-# -----------------------------------------------------
-@admin.register(UserTrack)
-class UserTrackAdmin(admin.ModelAdmin):
-    list_display = ("user", "track", "added_at")
-    search_fields = ("user__username", "track__name")
-    list_filter = ("added_at",)
-
-
-# -----------------------------------------------------
-# TrackInteraction Admin
-# -----------------------------------------------------
-@admin.register(TrackInteraction)
-class TrackInteractionAdmin(admin.ModelAdmin):
-    list_display = ("user", "track", "action", "timestamp")
-    search_fields = ("user__username", "track__name", "action")
-    list_filter = ("action", "timestamp")
 
 

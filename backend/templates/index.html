@@ -99,15 +99,6 @@
 
 </div>
 
-<!-- Logout -->
-    <div class="text-center mb-4">
-        <form action="{% url 'logout' %}" method="POST">
-            {% csrf_token %}
-            <button class="btn btn-primary btn-lg">
-                 Logout
-            </button>
-        </form>
-    </div>
 
 <script>
     document.getElementById("syncButton").addEventListener("click", function() {

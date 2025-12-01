@@ -33,9 +33,11 @@ def refresh_access_token(profile: UserProfile):
 
 def get_user_top_tracks(access_token, limit=30):
     headers = {"Authorization": f"Bearer {access_token}"}
-    params = {"limit": limit, "time_range": "medium_term"}
+    params = {"limit": limit, "time_range": "short_term"}
 
     r = requests.get(SPOTIFY_TOP_TRACKS_URL, headers=headers, params=params)
+    print("STATUS:", r.status_code)
+    #print("RAW RESPONSE:", r.text)
     data = r.json()
 
     tracks = []
@@ -54,6 +56,7 @@ def get_user_top_tracks(access_token, limit=30):
                 item["album"]["images"][0]["url"]
                 if item["album"]["images"] else ""
             ),
+            "source": "Spotify",
         })
 
     return tracks
@@ -72,7 +75,7 @@ def get_artist_genres(access_token, artist_id):
             r.raise_for_status()
             return r.json().get("genres", [])
         except requests.exceptions.SSLError:
-            time.sleep(0.4)  # wait and retry
+            time.sleep(0.4)
         except requests.exceptions.RequestException:
             break
 
@@ -89,19 +92,18 @@ def build_user_audio_profile_from_spotify(profile, limit=30):
     profile.save(update_fields=["sync_in_progress", "sync_done", "sync_total"])
 
     for t in top_tracks:
-        #Fetch global Track object
+        #Fetch Track object
         track_obj, created = Track.objects.get_or_create(
+            user_profile=profile,
             spotify_id=t["id"],
             defaults={
                 "name": t["name"],
                 "artists": t["artists"],
                 "artist_ids": t["artist_ids"],
                 "album_image": t["album_image"],
+                "source": "Spotify",
             }
         )
-
-        #Link track to user
-        profile.tracks.add(track_obj)
 
         if (not created
                 and track_obj.lyrics
@@ -138,6 +140,7 @@ def build_user_audio_profile_from_spotify(profile, limit=30):
             query = f"{t['name']} {artists}".strip()
 
             sc = search_soundcloud_track(query, settings.SOUNDCLOUD_CLIENT_ID)
+            print("SEARCH:", query, "=>", sc)
 
             if sc:
                 track_obj.soundcloud_id = str(sc["soundcloud_id"])
@@ -149,7 +152,7 @@ def build_user_audio_profile_from_spotify(profile, limit=30):
         profile.save(update_fields=["sync_done"])
 
 
-def recommend_tracks_for_mood(profile, selected_mood, selected_genre=None, limit=20):
+def recommend_tracks_for_mood(profile, selected_mood, limit=30):
     """
     RECOMMENDATION Algorithm
     1) Picks 5 "seed" tracks which are 5 of the user’s top tracks fetched from spotify and assigned a mood label 
@@ -169,32 +172,48 @@ def recommend_tracks_for_mood(profile, selected_mood, selected_genre=None, limit
 
     # Grab 5 mood-matched songs from DB (seeds)
     db_tracks = list(
-        Track.objects.filter(mood=selected_mood).order_by("-id")[:5]
+        Track.objects.filter(
+            user_profile=profile,
+            mood=selected_mood
+        ).order_by("-id")[:5]
     )
+
+    print("\n--- RECOMMENDER DEBUG ---")
+    print("Selected mood:", selected_mood)
+    print("Initial tracks:", list(t.name for t in db_tracks))
 
     recommended_tracks = db_tracks.copy()
     track_ids = {track.id for track in db_tracks}
 
     # Check if user has songs with Soundcloud IDs
-    seed_tracks = profile.tracks.filter(
+    seed_tracks = Track.objects.filter(
+        user_profile=profile,
         mood=selected_mood,
         soundcloud_id__isnull=False
     )
 
+    print("User seeds with SC ID:", list(seed_tracks.values("name", "soundcloud_id")))
+
     # use ANY song with a mood in DB that has a Soundcloud ID
     if not seed_tracks.exists():
+        print("NO SEED TRACKS FOUND — using DB fallback only")
         seed_tracks = Track.objects.filter(
-            mood=selected_mood,
-            soundcloud_id__isnull=False
-        )[:5]
+    user_profile=profile,
+    mood=selected_mood,
+    soundcloud_id__isnull=False
+    )[:5]
+
+
+    print("DB seeds with SC ID:", list(seed_tracks.values("name","soundcloud_id")))
+
 
     # If still no soundcloud recommendations return recommendations from DB
     if not seed_tracks.exists():
         if len(recommended_tracks) < limit:
-            filler = Track.objects.filter(mood=selected_mood).exclude(
-                id__in=track_ids
-            )[: (limit - len(recommended_tracks))]
-            recommended_tracks.extend(filler)
+            filler = Track.objects.filter(
+                user_profile=profile,
+                mood=selected_mood
+            ).exclude(id__in=track_ids)[:limit - len(recommended_tracks)]
 
         return recommended_tracks
 
@@ -205,30 +224,20 @@ def recommend_tracks_for_mood(profile, selected_mood, selected_genre=None, limit
         related_sc_tracks = get_related_tracks(
             seed.soundcloud_id,
             client_id,
-            limit=15
+            limit=15,
         )
-
-        # Extract genres to filter Soundcloud tracks
-        seed_genres = set(seed.genres or [])
+        print("→ Related tracks fetched:", len(related_sc_tracks))
 
         for sc_track in related_sc_tracks:
 
             # Make response compatible with our DB
             synced_track = sync_soundcloud_track(
                 sc_track,
-                selected_mood   # assign mood directly as it was fetched using that mood so logically it should be the same
+                selected_mood,# assign mood directly as it was fetched using that mood so logically it should be the same
+                profile
             )
             if not synced_track:
                 continue
-
-            # Genre Filtering
-            if selected_genre:
-                if selected_genre not in (synced_track.genres or []):
-                    continue
-            target_genres = set(synced_track.genres or [])
-            if seed_genres and target_genres:
-                if len(seed_genres.intersection(target_genres)) == 0:
-                    continue
 
             if synced_track.id in track_ids:
                 continue
@@ -245,9 +254,9 @@ def recommend_tracks_for_mood(profile, selected_mood, selected_genre=None, limit
 
     #  If still under the limit, add DB tracks
     if len(recommended_tracks) < limit:
-        filler = Track.objects.filter(mood=selected_mood).exclude(
-            id__in=track_ids
-        )[: (limit - len(recommended_tracks))]
-        recommended_tracks.extend(filler)
+        filler = Track.objects.filter(
+            user_profile=profile,
+            mood=selected_mood
+        ).exclude(id__in=track_ids)[:limit - len(recommended_tracks)]
 
     return recommended_tracks

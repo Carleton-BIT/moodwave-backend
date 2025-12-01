@@ -1,45 +1,35 @@
-"""
-URL configuration for term_project project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
 from django.urls import path
-from django.contrib.auth import views as auth_views
 from . import views
+from rest_framework.authtoken.views import obtain_auth_token
+
 
 urlpatterns = [
     path('', views.index, name='index'),
-    path('signup/', views.signup, name='signup'),
     path('toptracks/', views.top_tracks, name='top-tracks'),
-    path('login/', auth_views.LoginView.as_view(template_name='login.html'), name='login'),
-    path('logout/', views.logout_view, name='logout'),
 
-    # Spotify
-    path('spotify/login/', views.spotify_login, name='spotify_login'),
+    # API ROUTES
+    path('api/top-tracks/', views.api_top_tracks, name='api_top_tracks'),
+    path('api/spotify/start/', views.spotify_start, name='spotify_start'),
+    path('api/spotify/start/', views.spotify_start, name='spotify_start'),
+
     path('spotify/callback/', views.spotify_callback, name='spotify_callback'),
 
-    # Mood Sync Feature
-    path('mood-sync/', views.mood_sync, name='mood_sync'),
+    path('api/register/', views.signUp),
 
-    #Player page
+    path("api/user-info/", views.userInformation),
+    path("login/token", obtain_auth_token),
+
+    path("api/user-stats/", views.user_stats),
+
+
+    path("api/mood-sync/", views.mood_sync_api),
+
+    path("api/recommendations/", views.api_recommendations),
+
+
+    # Player pages
     path('player/<int:position>/', views.player, name='player'),
     path('save-playlist/', views.save_playlist, name='save_playlist'),
 
 
 ]
-
-
-
-
-

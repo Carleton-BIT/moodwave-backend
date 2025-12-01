@@ -33,55 +33,44 @@ def extract_artists(title):
 
     return artists
 
-def sync_soundcloud_track(sc_track, selected_mood):
+def sync_soundcloud_track(sc_track, selected_mood, profile):
     """
-    Light-weight sync for recommendation use:
-    - ensures Track exists
-    - assigns the *selected_mood* directly (no lyric analysis)
-    - enriches genres from SoundCloud tags
+    Create a SoundCloud track that is UNIQUE to this user.
+    Every user gets their own Track rows.
     """
     sc_id = sc_track.get("id")
     if not sc_id:
         return None
 
     sc_id_str = str(sc_id)
+    title = sc_track.get("title") or "Unknown title"
 
-    # Try to find existing track by soundcloud_id
-    track_obj = Track.objects.filter(soundcloud_id=sc_id_str).first()
+    # Extract artist names from the SoundCloud title
+    artists = extract_artists(title)
+    if not artists:
+        artists = [(sc_track.get("user") or {}).get("username", "Unknown Artist")]
 
-    # If not found, create a new Track
-    if not track_obj:
-        title = sc_track.get("title") or "Unknown title"
+    artwork = sc_track.get("artwork_url") or ""
+    url = sc_track.get("permalink_url")
 
-        # Extract artist names from the title
-        artists = extract_artists(title)
-        # Fallback to uploader username if no artists detected
-        if not artists:
-            artists = [(sc_track.get("user") or {}).get("username", "Unknown Artist")]
+    # create a new track for this user
+    track_obj = Track.objects.create(
+        user_profile=profile,
+        spotify_id=f"sc-{sc_id_str}",
+        name=title,
+        artists=artists,
+        artist_ids=[],
+        album_image=artwork,
+        soundcloud_id=sc_id_str,
+        soundcloud_url=url,
+        source="SoundCloud",
+        mood=selected_mood,
+        genres=[],
+        lyrics_missing=True,
+    )
 
-        artwork = sc_track.get("artwork_url") or ""
-
-        track_obj = Track.objects.create(
-            spotify_id=f"sc-{sc_id_str}",   # fake ID so field is not empty
-            name=title,
-            artists=artists,
-            artist_ids=[],
-            album_image=artwork,
-            soundcloud_id=sc_id_str,
-            soundcloud_url=sc_track.get("permalink_url"),
-            source="soundcloud",
-            mood=selected_mood,
-            lyrics_missing=True,            # we are skipping lyrics
-        )
-    else:
-        # If we already have it but no mood, assign current selection
-        if not track_obj.mood:
-            track_obj.mood = selected_mood
-    if track_obj.genres is None:
-        track_obj.genres = []
-
-    track_obj.save()
     return track_obj
+
 
 
 def search_soundcloud_track(track_title, client_id):
