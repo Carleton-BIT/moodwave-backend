@@ -4,8 +4,7 @@ from rest_framework.authtoken.views import obtain_auth_token
 
 
 urlpatterns = [
-    path('', views.index, name='index'),
-    path('toptracks/', views.top_tracks, name='top-tracks'),
+
 
     # API ROUTES
     path('api/top-tracks/', views.api_top_tracks, name='api_top_tracks'),
@@ -21,15 +20,18 @@ urlpatterns = [
 
     path("api/user-stats/", views.user_stats),
 
+    path("api/save-playlist/", views.api_save_playlist, name="api_save_playlist"),
+    path("api/user-playlists/", views.user_playlists),
+    path("api/get-playlist/", views.api_get_playlist),
+
+
 
     path("api/mood-sync/", views.mood_sync_api),
 
     path("api/recommendations/", views.api_recommendations),
 
 
-    # Player pages
-    path('player/<int:position>/', views.player, name='player'),
-    path('save-playlist/', views.save_playlist, name='save_playlist'),
+
 
 
 ]

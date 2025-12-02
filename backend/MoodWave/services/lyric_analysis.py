@@ -6,7 +6,7 @@ from unidecode import unidecode
 
 #---NORMALIZE PARAMS---
 def normalize_parameter(s):
-    # normalize artist/title into Genius-style slug format
+    # normalize artist/title to match Genius query params
     return unidecode(s).lower().strip()
 
 
@@ -18,8 +18,9 @@ def fetch_lyrics(track_name, artist_name):
 
     # Remove things like "(Remix)"
     title = re.sub(r"\(.*?\)", "", title).strip()
+    title = title.replace(",", "")
 
-    # Split possible artists
+    # Split artists
     artist_list = [a.strip() for a in re.split(r",|&|feat\.|ft\.", artists_raw) if a.strip()]
 
     # Build all possible artist combinations (ex: partynextdoor-and-drake)
@@ -38,7 +39,6 @@ def fetch_lyrics(track_name, artist_name):
                 artist_slugs.add(f"{a1}-and-{a2}")
                 artist_slugs.add(f"{a2}-and-{a1}")
 
-    # 3) fallback: original input as slug
     artist_slugs.add(artists_raw.replace(" ", "-"))
 
     # Handle url variants
@@ -89,7 +89,7 @@ def fetch_lyrics(track_name, artist_name):
                     if any(t.lower() in stripped.lower() for t in irrelevant_phrases):
                         continue
 
-                    # skip long explanation paragraphs (lyrics rarely exceed 120 chars per line)
+                    # skip long explanation paragraphs
                     if len(stripped) > 160:
                         continue
 
@@ -134,8 +134,7 @@ EMOTION_TO_VALENCE_ENERGY = {
 def classify_lyrics_emotion(lyrics: str):
     # This function sends the song lyrics to a HuggingFace emotion-classification model(https://huggingface.co/j-hartmann/emotion-english-distilroberta-base?text=we+was+supposed+to+be%2C+oh-ohTogether+forever+alreadyIm+getting+older%2C+pressures+getting+heavy)
     # HuggingFace runs a transformer that takes text and returns emotion labels like "joy", "sadness", etc.
-    # We then map that predicted emotion into a numeric value (valence, energy) pair.
-    # send lyrics to HF model → estimate emotion → convert to valence and energy
+    # We then map that predicted emotion into a (valence, energy) pair.
 
     if not lyrics:
         return 0.0, 0.0
@@ -168,15 +167,12 @@ def classify_lyrics_emotion(lyrics: str):
         print("HF model error:", data["error"])
         return 0.0, 0.0
 
-        # Case 1: {"0": [...labels...]}
     if isinstance(data, dict) and "0" in data:
         data = data["0"]
 
-        # Case 2: [[{label, score}, {...}]]
     if isinstance(data, list) and len(data) > 0 and isinstance(data[0], list):
         data = data[0]
 
-    # choose highest scoring emotion labels and map them to valence and energy values
     if not isinstance(data, list):
         print("Unexpected HF format:", data)
         return 0.0, 0.0

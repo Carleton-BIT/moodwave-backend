@@ -1,13 +1,11 @@
 from django.contrib import admin
-from django.contrib.auth import models
-
 from .models import (
     UserProfile,
-    Track,
+    GlobalTrack,
+    UserTrack,
     Playlist,
     PlaylistTrack,
 )
-
 
 # -----------------------------------------------------
 # UserProfile Admin
@@ -19,7 +17,6 @@ class UserPlaylistInline(admin.TabularInline):
     readonly_fields = ("created_at",)
 
 
-
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
     list_display = ("user", "spotify_id", "created_at", "last_profile_update")
@@ -29,10 +26,10 @@ class UserProfileAdmin(admin.ModelAdmin):
     inlines = [UserPlaylistInline]
 
 # -----------------------------------------------------
-# Track Admin
+# GlobalTrack Admin
 # -----------------------------------------------------
-@admin.register(Track)
-class TrackAdmin(admin.ModelAdmin):
+@admin.register(GlobalTrack)
+class GlobalTrackAdmin(admin.ModelAdmin):
     list_display = (
         "name",
         "primary_artist",
@@ -51,8 +48,18 @@ class TrackAdmin(admin.ModelAdmin):
 
     def lyrics_present(self, obj):
         return bool(obj.lyrics) and not obj.lyrics_missing
+
     lyrics_present.boolean = True
     lyrics_present.short_description = "Has Lyrics?"
+
+# -----------------------------------------------------
+# UserTrack Admin
+# -----------------------------------------------------
+@admin.register(UserTrack)
+class UserTrackAdmin(admin.ModelAdmin):
+    list_display = ("user_profile", "track", "user_mood", "created_at")
+    search_fields = ("track__name", "user_profile__user__username")
+    list_filter = ("created_at", "user_mood")
 
 
 # -----------------------------------------------------
@@ -62,8 +69,6 @@ class PlaylistTrackInline(admin.TabularInline):
     model = PlaylistTrack
     extra = 1
     autocomplete_fields = ("track",)
-
-
 
 # -----------------------------------------------------
 # Playlist Admin
@@ -76,15 +81,11 @@ class PlaylistAdmin(admin.ModelAdmin):
 
     inlines = [PlaylistTrackInline]
 
-
 # -----------------------------------------------------
 # PlaylistTrack Admin
 # -----------------------------------------------------
 @admin.register(PlaylistTrack)
 class PlaylistTrackAdmin(admin.ModelAdmin):
     list_display = ("playlist", "track", "added_at")
-    search_fields = ("playlist__name", "track__name")
+    search_fields = ("playlist__name", "track__track__name")
     list_filter = ("added_at",)
-
-
-

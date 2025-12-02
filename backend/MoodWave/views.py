@@ -1,224 +1,197 @@
 import base64
-import threading
 from datetime import timedelta
 import requests
-from django.contrib import messages
-from django.contrib.auth import logout as django_logout
 from django.http import JsonResponse
-from rest_framework import status
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import authentication_classes, permission_classes, api_view
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from django.shortcuts import render, redirect
+from django.shortcuts import redirect
 from django.utils import timezone
 from rest_framework.response import Response
 from term_project import settings
-from .models import UserProfile, Track, Playlist, PlaylistTrack
+from .models import UserProfile, GlobalTrack, UserTrack, Playlist, PlaylistTrack
 from .services.moodDescriptions import MOOD_DESCRIPTIONS
-from .services.spotify_service import build_user_audio_profile_from_spotify, get_user_top_tracks, \
-    recommend_tracks_for_mood
+from .services.spotify_service import build_user_audio_profile_from_spotify, get_user_top_tracks, recommend_tracks_for_mood, refresh_access_token
 from .services.api_serializer import RegisterSerializer
 
-
-@api_view(['GET', 'POST'])
-def index(request):
-    profile, _ = UserProfile.objects.get_or_create(user=request.user)
-
-    # If no Spotify connected, ask user to connect
-    if not profile.access_token:
-        return redirect('spotify_login')
-
-    if request.session.get("needs_sync", False):
-        def run_sync():
-            build_user_audio_profile_from_spotify(profile, limit=30)
-            print("Background mood sync completed")
-
-        threading.Thread(target=run_sync, daemon=True).start()
-        request.session["needs_sync"] = False
-
-        messages.info(request, "Syncing your vibe in the background…")
-
-    moods = (
-        Track.objects.filter(user_profile=profile)
-        .values_list('mood', flat=True)
-        .distinct()
-    )
-
-    genres = settings.MOODWAVE_GENRES
-    songs = None
-
-    if request.method == "POST":
-        selected_mood = request.POST.get("mood")
-
-        if selected_mood:
-
-            songs = recommend_tracks_for_mood(
-                profile=profile,
-                selected_mood=selected_mood,
-                limit=20
-            )
-
-            # Store playlist session
-            request.session["current_playlist"] = [t.id for t in songs]
-            request.session["current_playlist_mood"] = selected_mood
-
-    sync_total = int(profile.sync_total or 0)
-    sync_done = int(profile.sync_done or 0)
-    progress_percent = 0
-    if profile.sync_total > 0:
-        progress_percent = int((sync_done / sync_total) * 100)
-
-    context = {
-        "moods": moods,
-        "genres": genres,
-        "songs": songs,
-        # add converted numeric fields to template
-        "sync_total": sync_total,
-        "sync_done": sync_done,
-        "sync_in_progress": profile.sync_in_progress,
-        "progress_percent": progress_percent,
-    }
-    return render(request, "index.html", context)
 
 
 @api_view(['GET'])
 def api_top_tracks(request):
     profile = request.user.userprofile
 
-    tracks = Track.objects.filter(user_profile=profile)[:3]
+    # Refresh Spotify token
+    access_token = refresh_access_token(profile)
 
+    # Fetch User's top 5 songs
+    top_tracks = get_user_top_tracks(access_token, limit=5)
+
+    # Send to frontend
     data = []
-    for t in tracks:
+    for t in top_tracks:
         data.append({
-            "id": t.id,
-            "spotify_id": t.spotify_id,
-            "title": t.name,
-            "artists": ", ".join(t.artists),
-            "album_image": t.album_image,
-            "mood": t.mood,
-            "preview_url": t.soundcloud_url or "",  # player integration later
+            "spotify_id": t["id"],
+            "title": t["name"],
+            "artists": ", ".join(t["artists"]),
+            "album_image": t["album_image"],
         })
 
-    return JsonResponse({"top_tracks": data})
+    return JsonResponse({"top_tracks": data}, status=200)
 
 
-def player(request, position):
-    playlist_ids = request.session.get("current_playlist", [])
-    playlist_mood = request.session.get("current_playlist_mood")
+@api_view(["POST"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def api_save_playlist(request):
+    user_profile = request.user.userprofile
 
-    if not playlist_ids:
-        messages.error(request, "No active playlist. Pick a mood first.")
-        return redirect("index")
+    name = request.data.get("name", "MoodWave Mix")
+    tracks_data = request.data.get("tracks", [])
 
-    try:
-        position = int(position)
-    except ValueError:
-        position = 0
-
-    if position < 0 or position >= len(playlist_ids):
-        position = 0
-
-    track = Track.objects.get(id=playlist_ids[position])
-
-    prev_index = position - 1 if position > 0 else None
-    next_index = position + 1 if position < len(playlist_ids) - 1 else None
-
-    context = {
-        "track": track,
-        "position": position,
-        "prev_index": prev_index,
-        "next_index": next_index,
-        "playlist_mood": playlist_mood,
-        "playlist_length": len(playlist_ids),
-    }
-    return render(request, "player.html", context)
-
-def save_playlist(request):
-    if request.method != "POST":
-        return redirect("index")
-
-    playlist_ids = request.session.get("current_playlist", [])
-    playlist_mood = request.session.get("current_playlist_mood")
-
-    if not playlist_ids:
-        messages.error(request, "No active playlist to save.")
-        return redirect("index")
-
-    name = request.POST.get("name") or (
-        f"{playlist_mood} mix" if playlist_mood else "MoodWave Playlist"
-    )
-
-    # Create or get playlist for user with this name
-    playlist, created = Playlist.objects.get_or_create(
-        user_profile=request.user.userprofile,
-        name=name,
-    )
-
-    # Reset tracks for this playlist so saving again overwrites
-    PlaylistTrack.objects.filter(playlist=playlist).delete()
-
-    for tid in playlist_ids:
-        track = Track.objects.filter(id=tid, user_profile=request.user.userprofile).first()
-        if track:
-            PlaylistTrack.objects.get_or_create(
-                playlist=playlist,
-                track=track
-            )
-
-    messages.success(request, f"Playlist '{playlist.name}' saved to your profile.")
-    return redirect('player', position=0)
-
-
-def top_tracks(request):
-    profile, _ = UserProfile.objects.get_or_create(user=request.user)
-    top_tracks = []
-
-    if profile.access_token:
-        # fetch top tracks from Spotify
-        all_tracks = get_user_top_tracks(profile.access_token, limit=30)
-        top_tracks = all_tracks[:5]
-
-    return render(request, 'toptracks.html', {'profile': profile, 'top_tracks': top_tracks,})
-
-
-
-
-
-
-def logout_view(request):
-    django_logout(request)
-    return redirect('login')
-
-
-def create_playlist(user, playlist_name, track_ids):
-    playlist, _ = Playlist.objects.get_or_create(
-        user=user,
-        name=playlist_name
-    )
-
-    for tid in track_ids:
-        track = Track.objects.get(id=tid)
-        PlaylistTrack.objects.get_or_create(
-            playlist=playlist,
-            track=track
+    if not tracks_data:
+        return Response(
+            {
+                "status": "error",
+                "message": "No tracks provided."
+            },
+            status=400
         )
 
-    return playlist
+    # Create or get playlist
+    playlist, _ = Playlist.objects.get_or_create(
+        user_profile=user_profile,
+        name=name
+    )
+
+    PlaylistTrack.objects.filter(playlist=playlist).delete()
+
+    for t in tracks_data:
+        sc_url = t.get("soundcloud_url")
+        title = t.get("title")
+        artists_field = t.get("artists")
+        album_image = t.get("album_image")
+        spotify_id = t.get("spotify_id")
+
+        # Normalize artists
+        if isinstance(artists_field, str):
+            artists_list = [artists_field]
+        else:
+            artists_list = artists_field or []
+
+        # Find an existing GlobalTrack
+        gt = None
+
+        if sc_url:
+            gt = GlobalTrack.objects.filter(soundcloud_url=sc_url).first()
+
+        if not gt and spotify_id:
+            gt = GlobalTrack.objects.filter(spotify_id=spotify_id).first()
+
+        # If it doesn't exist, create a new GlobalTrack
+        if not gt:
+            synthetic_spotify_id = spotify_id or f"sc-{sc_url}"
+
+            gt = GlobalTrack.objects.create(
+                spotify_id=synthetic_spotify_id,
+                name=title or "Unknown title",
+                artists=artists_list,
+                artist_ids=[],
+                album_image=album_image,
+                soundcloud_url=sc_url,
+                source="SoundCloud",
+            )
+
+        user_track, _ = UserTrack.objects.get_or_create(
+            user_profile=user_profile,
+            track=gt
+        )
+
+        # Add to Playlist
+        PlaylistTrack.objects.get_or_create(
+            playlist=playlist,
+            track=user_track
+        )
+
+    return Response({"playlist_name": playlist.name}, status=200)
+
+
+
+@api_view(["GET"])
+@authentication_classes([TokenAuthentication])
+def user_playlists(request):
+    profile = request.user.userprofile
+
+    playlists = []
+    for p in profile.playlists.all().order_by("-created_at"):
+        pts = PlaylistTrack.objects.filter(playlist=p)
+
+        cover = None
+        if pts.exists():
+            first_pt = pts.select_related("track__track").first()
+            cover = first_pt.track.track.album_image #First song in playlist set as playlist cover
+
+        playlists.append({
+            "id": p.id,
+            "name": p.name,
+            "trackCount": pts.count(),
+            "cover": cover,
+        })
+
+    return Response({"playlists": playlists}, status=200)
+
+
+@api_view(["GET"])
+@authentication_classes([TokenAuthentication])
+def api_get_playlist(request):
+    playlist_id = request.GET.get("id")
+
+    if not playlist_id:
+        return Response({"error": "Missing playlist id"}, status=400)
+
+    try:
+        playlist = Playlist.objects.get(
+            id=playlist_id,
+            user_profile=request.user.userprofile
+        )
+    except Playlist.DoesNotExist:
+        return Response({"error": "Playlist not found"}, status=404)
+
+    tracks = PlaylistTrack.objects.filter(playlist=playlist).select_related("track__track")
+
+    data = []
+    for item in tracks:
+        ut = item.track          # UserTrack
+        gt = ut.track            # GlobalTrack
+
+        data.append({
+            "title": gt.name,
+            "artists": ", ".join(gt.artists),
+            "album": "",
+            "album_image": gt.album_image,
+            "soundcloud_url": gt.soundcloud_url,
+            "spotify_id": gt.spotify_id,
+            "id": gt.id,
+        })
+
+    return Response({
+        "playlist": playlist.name,
+        "tracks": data
+    })
 
 @api_view(["GET","POST"])
 @authentication_classes([TokenAuthentication])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def mood_sync_api(request):
     profile = request.user.userprofile
 
-    # Reset counters
+    # loading screen counters
     profile.sync_in_progress = True
     profile.sync_done = 0
-    profile.sync_total = 10
+    profile.sync_total = 50
     profile.save()
 
-    # Run the full sync (blocking)
+    # Run the sync
     build_user_audio_profile_from_spotify(profile, limit=50)
 
     # Mark as done
@@ -226,11 +199,13 @@ def mood_sync_api(request):
     profile.save()
 
     # Mark profile as built
-    if profile.tracks.count() > 10:
+    if profile.user_tracks.count() >= 10:
         profile.profile_built = True
         profile.save(update_fields=["profile_built"])
 
+
     return Response({"message": "Sync complete"})
+
 
 
 #Spotify authentication
@@ -244,7 +219,7 @@ SPOTIFY_PROFILE_URL = "https://api.spotify.com/v1/me"
 @permission_classes([IsAuthenticated])
 def spotify_start(request):
 
-    token = request.auth  # DRF stores token here if authenticated
+    token = request.auth
 
     if token is None:
         return Response({"error": "Not authenticated"}, status=401)
@@ -282,7 +257,7 @@ def spotify_callback(request):
 
     profile, _ = UserProfile.objects.get_or_create(user=user)
 
-    # Exchange code for Spotify access token
+    # Spotify access tokens
     client_id = settings.SPOTIFY_CLIENT_ID
     client_secret = settings.SPOTIFY_CLIENT_SECRET
     redirect_uri = settings.SPOTIFY_REDIRECT_URI
@@ -333,8 +308,6 @@ def signUp(request):
 
         # Create UserProfile automatically
         UserProfile.objects.create(user=user)
-
-        # Option A: Return token after signup
         token, created = Token.objects.get_or_create(user=user)
 
         return Response(
@@ -343,11 +316,10 @@ def signUp(request):
                 "token": token.key,
                 "username": user.username,
             },
-            status=status.HTTP_201_CREATED
+            status=201
         )
 
-    # If invalid, return clear errors
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    return Response(serializer.errors, status=400)
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
@@ -366,8 +338,11 @@ def userInformation(request):
     profile, _ = UserProfile.objects.get_or_create(user=user)
 
     mood_list = (
-        Track.objects.filter(user_profile=profile)
+        GlobalTrack.objects.filter(
+            usertrack__user_profile=profile,
+        )
         .exclude(mood__isnull=True)
+        .exclude(soundcloud_id__isnull=True)
         .exclude(mood="")
         .values_list("mood", flat=True)
         .distinct()
@@ -394,10 +369,18 @@ def user_stats(request):
     user = request.user
     profile = user.userprofile
 
-    tracks = Track.objects.filter(user_profile=profile)
+    # All Spotify tracks the user has synced
+    tracks = GlobalTrack.objects.filter(
+        usertrack__user_profile=profile,
+        source="Spotify"
+    ).filter(
+        mood__isnull=False
+    ).exclude(
+        mood=""
+    ).exclude(
+        soundcloud_url__isnull=True
+    )
 
-
-    # If no tracks yet
     if tracks.count() == 0:
         return Response({
             "mood_distribution": [],
@@ -413,7 +396,6 @@ def user_stats(request):
         mood = t.mood or "Unknown"
         mood_counts[mood] = mood_counts.get(mood, 0) + 1
 
-    # Convert to percentages
     mood_distribution = [
         {
             "mood": mood,
@@ -441,16 +423,16 @@ def user_stats(request):
 
 @api_view(["GET"])
 @authentication_classes([TokenAuthentication])
-@permission_classes([IsAuthenticated])   # allow frontend calls
+@permission_classes([IsAuthenticated])
 def api_recommendations(request):
     mood = request.GET.get("mood")
 
     if not mood:
         return Response({"error": "Mood is required"}, status=400)
 
+    token = request.headers.get("Authorization")
     profile = None
 
-    token = request.headers.get("Authorization")
     if token and token.startswith("Token "):
         try:
             token_key = token.split("Token ")[1]
@@ -459,30 +441,33 @@ def api_recommendations(request):
         except:
             profile = None
 
-    # If no authenticated user, fallback to DB-based mood recommendations
+    if not profile:
+        return Response({"songs": []})
+
     print("PROFILE:", profile)
-    if profile:
-        recommended = recommend_tracks_for_mood(profile, mood, limit=30)
 
-    else:
-        recommended = []
+    recommended = recommend_tracks_for_mood(profile, mood, limit=30)
 
-
-    # Convert Track objects into JSON response
     songs = []
 
     for t in recommended:
-
-        if not t.soundcloud_url:
+        # SoundCloud dict
+        if isinstance(t, dict):
+            songs.append({
+                "title": t.get("title"),
+                "artists": t.get("artists"),
+                "album_image": t.get("album_image"),
+                "soundcloud_url": t.get("soundcloud_url"),
+            })
             continue
 
-        songs.append({
-            "title": t.name,
-            "artists": ", ".join(t.artists),
-            "album_image": t.album_image,
-            "soundcloud_url": t.soundcloud_url,
-        })
+        # GlobalTrack object
+        if isinstance(t, GlobalTrack) and t.soundcloud_url:
+            songs.append({
+                "title": t.name,
+                "artists": ", ".join(t.artists),
+                "album_image": t.album_image,
+                "soundcloud_url": t.soundcloud_url,
+            })
 
     return Response({"songs": songs})
-
-

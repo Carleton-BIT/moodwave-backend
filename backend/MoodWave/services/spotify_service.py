@@ -1,11 +1,27 @@
+# MoodWave/services/spotify_service.py
+import random
 import requests
-from django.conf import settings
-from MoodWave.models import Track, UserProfile, Playlist, PlaylistTrack
-from django.utils import timezone
 from datetime import timedelta, time
+
+from django.conf import settings
+from django.utils import timezone
+
+from MoodWave.models import (
+    GlobalTrack,
+    UserTrack,
+    UserProfile,
+    Playlist,
+    PlaylistTrack,
+)
 from .lyric_analysis import fetch_lyrics, classify_lyrics_emotion
 from .mood_classification import classify_mood
-from MoodWave.services.soundcloud_service import search_soundcloud_track, get_related_tracks, sync_soundcloud_track
+from MoodWave.services.soundcloud_service import (
+    search_soundcloud_track,
+    get_related_tracks,
+    sync_soundcloud_track,
+    extract_artists,
+)
+
 SPOTIFY_TOP_TRACKS_URL = "https://api.spotify.com/v1/me/top/tracks"
 SPOTIFY_SEARCH_URL = "https://api.spotify.com/v1/search"
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
@@ -26,7 +42,9 @@ def refresh_access_token(profile: UserProfile):
     token_data = r.json()
 
     profile.access_token = token_data["access_token"]
-    profile.token_expires_at = timezone.now() + timedelta(seconds=token_data.get("expires_in", 3600))
+    profile.token_expires_at = timezone.now() + timedelta(
+        seconds=token_data.get("expires_in", 3600)
+    )
     profile.save(update_fields=["access_token", "token_expires_at"])
     return profile.access_token
 
@@ -37,7 +55,6 @@ def get_user_top_tracks(access_token, limit=30):
 
     r = requests.get(SPOTIFY_TOP_TRACKS_URL, headers=headers, params=params)
     print("STATUS:", r.status_code)
-    #print("RAW RESPONSE:", r.text)
     data = r.json()
 
     tracks = []
@@ -47,28 +64,28 @@ def get_user_top_tracks(access_token, limit=30):
         artist_names = [a["name"] for a in artist_objs]
         artist_ids = [a.get("id") for a in artist_objs]
 
-        tracks.append({
-            "id": item["id"],
-            "name": item["name"],
-            "artists": artist_names,
-            "artist_ids": artist_ids,
-            "album_image": (
-                item["album"]["images"][0]["url"]
-                if item["album"]["images"] else ""
-            ),
-            "source": "Spotify",
-        })
+        tracks.append(
+            {
+                "id": item["id"],
+                "name": item["name"],
+                "artists": artist_names,
+                "artist_ids": artist_ids,
+                "album_image": (
+                    item["album"]["images"][0]["url"]
+                    if item["album"]["images"]
+                    else ""
+                ),
+                "source": "Spotify",
+            }
+        )
 
     return tracks
-
-
-
 
 
 def get_artist_genres(access_token, artist_id):
     headers = {"Authorization": f"Bearer {access_token}"}
     url = f"https://api.spotify.com/v1/artists/{artist_id}"
-    r = requests.get(url, headers=headers)
+
     for attempt in range(3):  # retry up to 3 times
         try:
             r = requests.get(url, headers=headers, timeout=5)
@@ -82,7 +99,13 @@ def get_artist_genres(access_token, artist_id):
     return []
 
 
-def build_user_audio_profile_from_spotify(profile, limit=30):
+def build_user_audio_profile_from_spotify(profile: UserProfile, limit=30):
+    """
+    Build/refresh the user's profile:
+    - Fetch top Spotify tracks
+    - Populate/refresh GlobalTrack (metadata, lyrics, mood, genres, SC info)
+    - Ensure a UserTrack exists linking user <-> track
+    """
     access_token = refresh_access_token(profile)
     top_tracks = get_user_top_tracks(access_token, limit)
 
@@ -92,9 +115,8 @@ def build_user_audio_profile_from_spotify(profile, limit=30):
     profile.save(update_fields=["sync_in_progress", "sync_done", "sync_total"])
 
     for t in top_tracks:
-        #Fetch Track object
-        track_obj, created = Track.objects.get_or_create(
-            user_profile=profile,
+        # 1️⃣ Global track for this Spotify ID
+        global_track, created = GlobalTrack.objects.get_or_create(
             spotify_id=t["id"],
             defaults={
                 "name": t["name"],
@@ -102,161 +124,163 @@ def build_user_audio_profile_from_spotify(profile, limit=30):
                 "artist_ids": t["artist_ids"],
                 "album_image": t["album_image"],
                 "source": "Spotify",
-            }
+            },
         )
 
-        if (not created
-                and track_obj.lyrics
-                and track_obj.mood
-                and track_obj.genres):
+        # 2️⃣ If we already have mood/lyrics/genres etc, we can skip heavy work
+        if (
+            not created
+            and global_track.lyrics
+            and global_track.mood
+            and global_track.genres
+        ):
+            # Still ensure the user has a UserTrack pointing here
+            UserTrack.objects.get_or_create(
+                user_profile=profile,
+                track=global_track,
+            )
             continue
 
-        # If track is NEW(not in DB), process lyrics
-        if (created or not track_obj.lyrics) and not track_obj.lyrics_missing:
+        # 3️⃣ Lyrics + emotion + mood (only if missing and not flagged missing)
+        if (created or not global_track.lyrics) and not global_track.lyrics_missing:
             lyrics = fetch_lyrics(t["name"], ", ".join(t["artists"]))
             if lyrics:
-                track_obj.lyrics = lyrics
+                global_track.lyrics = lyrics
 
-                # emotion classification only if lyrics exist
                 val, energy = classify_lyrics_emotion(lyrics)
-                track_obj.lyric_valence = val
-                track_obj.lyric_energy = energy
+                global_track.lyric_valence = val
+                global_track.lyric_energy = energy
 
-                # classify mood
-                track_obj.mood = classify_mood(val, energy)
-                print("Mood: " + track_obj.mood)
+                global_track.mood = classify_mood(val, energy)
+                print("Mood:", global_track.mood)
             else:
-                track_obj.lyrics_missing = True
+                global_track.lyrics_missing = True
 
-        # Fetching artist genre(for rec system)
-        genres = []
-        if t["artist_ids"]:
+        # 4️⃣ Genres (if we have at least one Spotify artist)
+        if t["artist_ids"] and not global_track.genres:
             genres = get_artist_genres(access_token, t["artist_ids"][0])
-        track_obj.genres = genres
+            global_track.genres = genres
 
-        # Fetch SoundCloud info
-        if not track_obj.soundcloud_id or not track_obj.soundcloud_url:
-            artists = " ".join(t["artists"])  # e.g. "Drake 21 Savage"
-            query = f"{t['name']} {artists}".strip()
+        # 5️⃣ SoundCloud info (if missing)
+        if not global_track.soundcloud_id or not global_track.soundcloud_url:
+            artists_str = " ".join(t["artists"])  # e.g. "Drake 21 Savage"
+            query = f"{t['name']} {artists_str}".strip()
 
             sc = search_soundcloud_track(query, settings.SOUNDCLOUD_CLIENT_ID)
             print("SEARCH:", query, "=>", sc)
 
             if sc:
-                track_obj.soundcloud_id = str(sc["soundcloud_id"])
-                track_obj.soundcloud_url = sc["soundcloud_url"]
+                global_track.soundcloud_id = str(sc["soundcloud_id"])
+                global_track.soundcloud_url = sc["soundcloud_url"]
 
-        track_obj.save()
+        global_track.save()
+
+        # 6️⃣ Ensure a UserTrack exists for this user
+        UserTrack.objects.get_or_create(
+            user_profile=profile,
+            track=global_track,
+        )
 
         profile.sync_done += 1
         profile.save(update_fields=["sync_done"])
 
 
-def recommend_tracks_for_mood(profile, selected_mood, limit=30):
+def recommend_tracks_for_mood(profile: UserProfile, selected_mood: str, limit=30):
     """
-    RECOMMENDATION Algorithm
-    1) Picks 5 "seed" tracks which are 5 of the user’s top tracks fetched from spotify and assigned a mood label 
-       - these are used to search SoundCloud for related tracks.
-
-    2) For each song:
-         - fetch about 15 related SoundCloud tracks
-         - sync each one to fit into our DB (mood assignment)
-         - Apply genre filter (if selected)
-
-    4) If we still don’t have enough songs,
-       add songs that match the mood from our DB.
-
+    Returns Spotify + SoundCloud recommendations WITHOUT saving any
+    of the recommended SoundCloud tracks to the database.
+    Only GlobalTracks (Spotify seeds/filler) are DB objects.
     """
 
     client_id = settings.SOUNDCLOUD_CLIENT_ID
 
-    # Grab 5 mood-matched songs from DB (seeds)
-    db_tracks = list(
-        Track.objects.filter(
-            user_profile=profile,
-            mood=selected_mood
-        ).order_by("-id")[:5]
-    )
-
-    print("\n--- RECOMMENDER DEBUG ---")
-    print("Selected mood:", selected_mood)
-    print("Initial tracks:", list(t.name for t in db_tracks))
-
-    recommended_tracks = db_tracks.copy()
-    track_ids = {track.id for track in db_tracks}
-
-    # Check if user has songs with Soundcloud IDs
-    seed_tracks = Track.objects.filter(
-        user_profile=profile,
+    # Select spotify seed tracks
+    spotify_seed_qs = GlobalTrack.objects.filter(
+        source="Spotify",
         mood=selected_mood,
-        soundcloud_id__isnull=False
-    )
+        usertrack__user_profile=profile,
+    ).distinct()
 
-    print("User seeds with SC ID:", list(seed_tracks.values("name", "soundcloud_id")))
+    spotify_seed = list(spotify_seed_qs)
+    random.shuffle(spotify_seed)
+    db_tracks = spotify_seed[:5]
 
-    # use ANY song with a mood in DB that has a Soundcloud ID
-    if not seed_tracks.exists():
-        print("NO SEED TRACKS FOUND — using DB fallback only")
-        seed_tracks = Track.objects.filter(
-    user_profile=profile,
-    mood=selected_mood,
-    soundcloud_id__isnull=False
-    )[:5]
+    print("\n---DEBUG ---")
+    print("Selected mood:", selected_mood)
+    print("Initial seed tracks:", [t.name for t in db_tracks])
+
+    # recommendations
+    recommended = []
+
+    # Track ID sets to avoid duplicates
+    db_ids = set()  # GlobalTrack IDs
+    sc_ids = set()
 
 
-    print("DB seeds with SC ID:", list(seed_tracks.values("name","soundcloud_id")))
+    for t in db_tracks:
+        recommended.append(t)
+        db_ids.add(t.id)
+        if t.soundcloud_id:
+            sc_ids.add(str(t.soundcloud_id))
 
+    # Find global tracks with Souncloud ids to use as seeds
+    seed_tracks_qs = GlobalTrack.objects.filter(
+        mood=selected_mood,
+        soundcloud_id__isnull=False,
+        usertrack__user_profile=profile,
+    ).distinct()
 
-    # If still no soundcloud recommendations return recommendations from DB
-    if not seed_tracks.exists():
-        if len(recommended_tracks) < limit:
-            filler = Track.objects.filter(
-                user_profile=profile,
-                mood=selected_mood
-            ).exclude(id__in=track_ids)[:limit - len(recommended_tracks)]
+    seed_tracks = list(seed_tracks_qs)
+    random.shuffle(seed_tracks)
+    seed_tracks = seed_tracks[:5]
 
-        return recommended_tracks
+    print("SoundCloud-capable seeds:", [(t.name, t.soundcloud_id) for t in seed_tracks])
 
-    # ------------------------------------------------------
-    # Fetch related SoundCloud tracks
-    # ------------------------------------------------------
-    for seed in seed_tracks[:5]:
-        related_sc_tracks = get_related_tracks(
-            seed.soundcloud_id,
-            client_id,
-            limit=15,
-        )
-        print("→ Related tracks fetched:", len(related_sc_tracks))
+    # Fetch related soundcloud tracks
+    for seed in seed_tracks:
+        related_list = get_related_tracks(seed.soundcloud_id, client_id, limit=15)
+        print("Related fetched:", len(related_list))
 
-        for sc_track in related_sc_tracks:
+        for sc_track in related_list:
+            synced = {
+                "title": sc_track.get("title") or "Unknown title",
+                "artists": ", ".join(
+                    extract_artists(sc_track.get("title", ""))
+                ) or (sc_track.get("user", {}) or {}).get(
+                    "username", "Unknown Artist"
+                ),
+                "album_image": sc_track.get("artwork_url") or "",
+                "soundcloud_id": str(sc_track.get("id")),
+                "soundcloud_url": sc_track.get("permalink_url"),
+            }
 
-            # Make response compatible with our DB
-            synced_track = sync_soundcloud_track(
-                sc_track,
-                selected_mood,# assign mood directly as it was fetched using that mood so logically it should be the same
-                profile
-            )
-            if not synced_track:
+            scid = synced["soundcloud_id"]
+
+            if scid in sc_ids:
                 continue
 
-            if synced_track.id in track_ids:
-                continue
+            recommended.append(synced)
+            sc_ids.add(scid)
 
-            # Add to recommendations
-            recommended_tracks.append(synced_track)
-            track_ids.add(synced_track.id)
-
-            if len(recommended_tracks) >= limit:
+            if len(recommended) >= limit:
                 break
 
-        if len(recommended_tracks) >= limit:
+        if len(recommended) >= limit:
             break
 
-    #  If still under the limit, add DB tracks
-    if len(recommended_tracks) < limit:
-        filler = Track.objects.filter(
-            user_profile=profile,
-            mood=selected_mood
-        ).exclude(id__in=track_ids)[:limit - len(recommended_tracks)]
+    # Filler tracks from global db
+    if len(recommended) < limit:
+        filler_needed = limit - len(recommended)
 
-    return recommended_tracks
+        filler_qs = GlobalTrack.objects.filter(
+            mood=selected_mood,
+            usertrack__user_profile=profile,
+        ).exclude(id__in=db_ids).distinct()[:filler_needed]
+
+        filler = list(filler_qs)
+        recommended.extend(filler)
+        for f in filler:
+            db_ids.add(f.id)
+
+
+    return recommended

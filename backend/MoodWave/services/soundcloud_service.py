@@ -1,8 +1,4 @@
 import requests, re
-from .lyric_analysis import fetch_lyrics, classify_lyrics_emotion
-from django.conf import settings
-from MoodWave.models import Track
-from .mood_classification import classify_mood
 
 
 SEARCH_URL = "https://api-v2.soundcloud.com/search/tracks"
@@ -32,11 +28,9 @@ def extract_artists(title):
     artists = [p.strip() for p in parts if p.strip()]
 
     return artists
-
-def sync_soundcloud_track(sc_track, selected_mood, profile):
+def sync_soundcloud_track(sc_track, selected_mood):
     """
-    Create a SoundCloud track that is UNIQUE to this user.
-    Every user gets their own Track rows.
+    Used For recommendations.
     """
     sc_id = sc_track.get("id")
     if not sc_id:
@@ -45,7 +39,7 @@ def sync_soundcloud_track(sc_track, selected_mood, profile):
     sc_id_str = str(sc_id)
     title = sc_track.get("title") or "Unknown title"
 
-    # Extract artist names from the SoundCloud title
+    # Extract artists from title
     artists = extract_artists(title)
     if not artists:
         artists = [(sc_track.get("user") or {}).get("username", "Unknown Artist")]
@@ -53,23 +47,19 @@ def sync_soundcloud_track(sc_track, selected_mood, profile):
     artwork = sc_track.get("artwork_url") or ""
     url = sc_track.get("permalink_url")
 
-    # create a new track for this user
-    track_obj = Track.objects.create(
-        user_profile=profile,
-        spotify_id=f"sc-{sc_id_str}",
-        name=title,
-        artists=artists,
-        artist_ids=[],
-        album_image=artwork,
-        soundcloud_id=sc_id_str,
-        soundcloud_url=url,
-        source="SoundCloud",
-        mood=selected_mood,
-        genres=[],
-        lyrics_missing=True,
-    )
-
-    return track_obj
+    # Return clean song object WITHOUT saving
+    return {
+        "spotify_id": f"sc-{sc_id_str}",
+        "name": title,
+        "artists": artists,
+        "artist_ids": [],
+        "album_image": artwork,
+        "soundcloud_id": sc_id_str,
+        "soundcloud_url": url,
+        "source": "SoundCloud",
+        "mood": selected_mood,
+        "genres": [],
+    }
 
 
 
