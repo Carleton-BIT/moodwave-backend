@@ -49,7 +49,7 @@ def refresh_access_token(profile: UserProfile):
     return profile.access_token
 
 
-def get_user_top_tracks(access_token, limit=30):
+def get_user_top_tracks(access_token, limit=50):
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"limit": limit, "time_range": "short_term"}
 
@@ -115,7 +115,7 @@ def build_user_audio_profile_from_spotify(profile: UserProfile, limit=30):
     profile.save(update_fields=["sync_in_progress", "sync_done", "sync_total"])
 
     for t in top_tracks:
-        # 1️⃣ Global track for this Spotify ID
+        # Global track for this Spotify ID
         global_track, created = GlobalTrack.objects.get_or_create(
             spotify_id=t["id"],
             defaults={
@@ -127,7 +127,7 @@ def build_user_audio_profile_from_spotify(profile: UserProfile, limit=30):
             },
         )
 
-        # 2️⃣ If we already have mood/lyrics/genres etc, we can skip heavy work
+        # If we already have mood/lyrics/genres etc, we can skip heavy work
         if (
             not created
             and global_track.lyrics
@@ -141,7 +141,7 @@ def build_user_audio_profile_from_spotify(profile: UserProfile, limit=30):
             )
             continue
 
-        # 3️⃣ Lyrics + emotion + mood (only if missing and not flagged missing)
+        #  Lyrics + emotion + mood (only if missing and not flagged missing)
         if (created or not global_track.lyrics) and not global_track.lyrics_missing:
             lyrics = fetch_lyrics(t["name"], ", ".join(t["artists"]))
             if lyrics:
@@ -156,12 +156,12 @@ def build_user_audio_profile_from_spotify(profile: UserProfile, limit=30):
             else:
                 global_track.lyrics_missing = True
 
-        # 4️⃣ Genres (if we have at least one Spotify artist)
+        # Genres (if we have at least one Spotify artist)
         if t["artist_ids"] and not global_track.genres:
             genres = get_artist_genres(access_token, t["artist_ids"][0])
             global_track.genres = genres
 
-        # 5️⃣ SoundCloud info (if missing)
+        # SoundCloud info (if missing)
         if not global_track.soundcloud_id or not global_track.soundcloud_url:
             artists_str = " ".join(t["artists"])  # e.g. "Drake 21 Savage"
             query = f"{t['name']} {artists_str}".strip()
@@ -175,7 +175,7 @@ def build_user_audio_profile_from_spotify(profile: UserProfile, limit=30):
 
         global_track.save()
 
-        # 6️⃣ Ensure a UserTrack exists for this user
+        # Ensure a UserTrack exists for this user
         UserTrack.objects.get_or_create(
             user_profile=profile,
             track=global_track,
