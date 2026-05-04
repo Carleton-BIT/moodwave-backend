@@ -1,6 +1,0 @@
-services:
-  - type: web
-    name: moodwave-backend
-    env: python
-    buildCommand: "./build.sh"
-    startCommand: "gunicorn term_project.wsgi:application"

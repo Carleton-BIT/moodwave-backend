@@ -44,7 +44,7 @@ ALLOWED_HOSTS = [
     "moodwave-backend.vercel.app",
     "localhost",
     "127.0.0.1",
-    ".onrender.com",
+    "MoodWave.onrender.com",
 ]
 
 # Spotify API Credentials
