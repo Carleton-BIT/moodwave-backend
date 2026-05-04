@@ -39,7 +39,13 @@ def env_list(name: str, default=None, sep=","):
 #IMPLEMENT API KEY IN A SIMILAR WAY TO SECRET KEY
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", default=(["*"] if DEBUG else []))
+
+ALLOWED_HOSTS = [
+    "moodwave-backend.vercel.app",
+    "localhost",
+    "127.0.0.1",
+]
+
 # Spotify API Credentials
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
@@ -125,18 +131,8 @@ CORS_ALLOWED_ORIGINS = [
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://moodwave-frontend.vercel.app",
 ]
-
-
-REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.TokenAuthentication",
-        "rest_framework.authentication.SessionAuthentication"
-    ],
-    "DEFAULT_PERMISSION_CLASSES" : [
-        "rest_framework.permissions.IsAuthenticated"
-    ],
-}
 
 ROOT_URLCONF = 'term_project.urls'
 
