@@ -41,10 +41,9 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
 
 ALLOWED_HOSTS = [
-    "moodwave-backend.vercel.app",
     "localhost",
     "127.0.0.1",
-    "MoodWave.onrender.com",
+    "moodwave-6b5s.onrender.com",
 ]
 
 # Spotify API Credentials
@@ -82,7 +81,6 @@ MOODWAVE_GENRES = [
 
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
 
 
 # Application definition
@@ -114,9 +112,9 @@ REST_FRAMEWORK = {
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -131,15 +129,18 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_HEADERS = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'https://moodwave-frontend.vercel.app',
+    "authorization",
+    "content-type",
+    "accept",
+    "origin",
+    "x-requested-with",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://moodwave-frontend.vercel.app",
+    "https://moodwave-6b5s.onrender.com",
 ]
 
 ROOT_URLCONF = 'term_project.urls'
