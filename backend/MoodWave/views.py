@@ -1,6 +1,7 @@
 import base64
 from datetime import timedelta
 import requests
+from django.contrib.auth import authenticate
 from django.http import JsonResponse
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
@@ -14,7 +15,6 @@ from .models import UserProfile, GlobalTrack, UserTrack, Playlist, PlaylistTrack
 from .services.moodDescriptions import MOOD_DESCRIPTIONS
 from .services.spotify_service import build_user_audio_profile_from_spotify, get_user_top_tracks, recommend_tracks_for_mood, refresh_access_token
 from .services.api_serializer import RegisterSerializer
-
 
 
 @api_view(['GET'])
@@ -296,7 +296,32 @@ def spotify_callback(request):
     # Redirect user back to app
     return redirect("http://localhost:5173/")
 
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def login(request):
+    username = request.data.get("username")
+    password = request.data.get("password")
 
+    if not username or not password:
+        return Response(
+            {"error": "Username and password required"},
+            status=400
+        )
+
+    user = authenticate(username=username, password=password)
+
+    if user is None:
+        return Response(
+            {"error": "Invalid credentials"},
+            status=400
+        )
+
+    token, _ = Token.objects.get_or_create(user=user)
+
+    return Response({
+        "token": token.key,
+        "username": user.username,
+    })
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
