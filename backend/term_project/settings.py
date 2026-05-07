@@ -107,8 +107,6 @@ CORS_ALLOWED_ORIGINS = [
     'https://moodwave-frontend.vercel.app',
 ]
 
-CORS_ALLOW_ALL_ORIGINS = True
-
 
 CORS_ALLOW_METHODS = [
     "GET",
@@ -154,6 +152,7 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+CORS_EXPOSE_HEADERS = ["Content-Type", "Authorization"]
 
 SESSION_COOKIE_SAMESITE = "None"
 CSRF_COOKIE_SAMESITE = "None"
