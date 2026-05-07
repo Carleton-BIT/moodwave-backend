@@ -2,6 +2,7 @@ import base64
 from datetime import timedelta
 import requests
 from django.contrib.auth import authenticate
+from django.shortcuts import get_object_or_404
 from django.http import JsonResponse
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
@@ -179,32 +180,25 @@ def api_get_playlist(request):
         "tracks": data
     })
 
-@api_view(["GET","POST"])
+@api_view(["GET", "POST"])
 @authentication_classes([TokenAuthentication])
 @permission_classes([IsAuthenticated])
 def mood_sync_api(request):
-    profile = request.user.userprofile
+    profile, created = UserProfile.objects.get_or_create(user=request.user)
 
-    # loading screen counters
     profile.sync_in_progress = True
     profile.sync_done = 0
     profile.sync_total = 50
     profile.save()
 
-    # Run the sync
-    build_user_audio_profile_from_spotify(profile, limit=50)
+    # run in background to avoid 502 timeout
+    import threading
+    threading.Thread(
+        target=build_user_audio_profile_from_spotify,
+        args=(profile, 50)
+    ).start()
 
-    # Mark as done
-    profile.sync_in_progress = False
-    profile.save()
-
-    # Mark profile as built
-    if profile.user_tracks.count() >= 10:
-        profile.profile_built = True
-        profile.save(update_fields=["profile_built"])
-
-
-    return Response({"message": "Sync complete"})
+    return Response({"message": "Sync started"})
 
 
 
