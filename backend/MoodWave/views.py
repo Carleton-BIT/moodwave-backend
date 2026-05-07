@@ -305,6 +305,8 @@ def login(request):
             status=400
         )
 
+    print("DATA:", request.data)
+
     user = authenticate(username=username, password=password)
 
     if user is None:
