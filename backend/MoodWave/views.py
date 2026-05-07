@@ -240,24 +240,22 @@ def spotify_start(request):
 def spotify_callback(request):
     error = request.GET.get("error")
     code = request.GET.get("code")
-    user_token = request.GET.get("state")  # token passed from spotify_start
+    user_token = request.GET.get("state")
 
     if error:
-        return redirect("http://localhost:5173/connect-spotify?error=spotify")
+        return redirect("https://moodwave-frontend.vercel.app/connect-spotify?error=spotify")
 
     if not code or not user_token:
-        return redirect("http://localhost:5173/connect-spotify?error=missing_state")
+        return redirect("https://moodwave-frontend.vercel.app/connect-spotify?error=missing_state")
 
-    # Get user from token
     try:
         token = Token.objects.get(key=user_token)
         user = token.user
     except Token.DoesNotExist:
-        return redirect("http://localhost:5173/connect-spotify?error=bad_token")
+        return redirect("https://moodwave-frontend.vercel.app/connect-spotify?error=bad_token")
 
     profile, _ = UserProfile.objects.get_or_create(user=user)
 
-    # Spotify access tokens
     client_id = settings.SPOTIFY_CLIENT_ID
     client_secret = settings.SPOTIFY_CLIENT_SECRET
     redirect_uri = settings.SPOTIFY_REDIRECT_URI
@@ -267,6 +265,7 @@ def spotify_callback(request):
         "Authorization": f"Basic {auth_header}",
         "Content-Type": "application/x-www-form-urlencoded",
     }
+
     data = {
         "grant_type": "authorization_code",
         "code": code,
@@ -276,8 +275,8 @@ def spotify_callback(request):
     try:
         token_resp = requests.post(SPOTIFY_TOKEN_URL, data=data, headers=headers)
         token_resp.raise_for_status()
-    except Exception as e:
-        return redirect("http://localhost:5173/connect-spotify?error=token_exchange")
+    except Exception:
+        return redirect("https://moodwave-frontend.vercel.app/connect-spotify?error=token_exchange")
 
     token_json = token_resp.json()
     access_token = token_json.get("access_token")
@@ -285,16 +284,14 @@ def spotify_callback(request):
     expires_in = token_json.get("expires_in", 3600)
 
     if not access_token:
-        return redirect("http://localhost:5173/connect-spotify?error=no_access")
+        return redirect("https://moodwave-frontend.vercel.app/connect-spotify?error=no_access")
 
-    # Save tokens to profile
     profile.access_token = access_token
     profile.refresh_token = refresh_token
     profile.token_expires_at = timezone.now() + timedelta(seconds=int(expires_in))
     profile.save()
 
-    # Redirect user back to app
-    return redirect("http://localhost:5173/")
+    return redirect("https://moodwave-frontend.vercel.app/")
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
