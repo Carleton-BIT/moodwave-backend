@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 from dotenv import load_dotenv
 import os
+import dj_database_url
 from corsheaders.defaults import default_headers
 
 
@@ -182,12 +183,20 @@ WSGI_APPLICATION = 'term_project.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+#
+# IMPORTANT (Render deploy note): Render's web service disk is EPHEMERAL.
+# If this falls back to SQLite in production, every redeploy or free-tier
+# spin-down wipes db.sqlite3 - which deletes every account and profile.
+# Set a DATABASE_URL env var (e.g. from a Render Postgres instance) in the
+# Render dashboard to get a real persistent database. Locally, with no
+# DATABASE_URL set, this still falls back to SQLite automatically.
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=600,
+        ssl_require=not DEBUG,
+    )
 }
 
 

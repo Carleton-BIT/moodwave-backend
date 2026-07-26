@@ -11,3 +11,5 @@ requests
 html5lib
 unidecode
 whitenoise
+dj-database-url
+psycopg2-binary

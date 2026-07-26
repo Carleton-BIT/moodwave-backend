@@ -2,7 +2,6 @@ import base64
 from datetime import timedelta
 import requests
 from django.contrib.auth import authenticate
-from django.shortcuts import get_object_or_404
 from django.http import JsonResponse
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
