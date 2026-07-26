@@ -186,20 +186,33 @@ def api_get_playlist(request):
 def mood_sync_api(request):
     profile, created = UserProfile.objects.get_or_create(user=request.user)
 
+    SYNC_LIMIT = 20
+
     profile.sync_in_progress = True
     profile.sync_done = 0
-    profile.sync_total = 50
+    profile.sync_total = SYNC_LIMIT
     profile.save()
 
-    # run in background to avoid 502 timeout
     import threading
     threading.Thread(
         target=build_user_audio_profile_from_spotify,
-        args=(profile, 50)
+        args=(profile, SYNC_LIMIT)
     ).start()
 
     return Response({"message": "Sync started"})
 
+
+@api_view(["GET"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def sync_status(request):
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    return Response({
+        "in_progress": profile.sync_in_progress,
+        "done": profile.sync_done,
+        "total": profile.sync_total,
+        "profile_built": profile.profile_built,
+    })
 
 
 #Spotify authentication

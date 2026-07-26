@@ -6,6 +6,8 @@ from rest_framework.authtoken.views import obtain_auth_token
 urlpatterns = [
     # API ROUTES
     path('api/top-tracks/', views.api_top_tracks, name='api_top_tracks'),
+
+    path("api/sync-status/", views.sync_status),
     path('api/spotify/start/', views.spotify_start, name='spotify_start'),
     path('api/spotify/start/', views.spotify_start, name='spotify_start'),
 

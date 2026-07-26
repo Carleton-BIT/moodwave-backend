@@ -105,7 +105,7 @@ def get_artist_genres(access_token, artist_id):
     return []
 
 
-def build_user_audio_profile_from_spotify(profile: UserProfile, limit=30):
+def build_user_audio_profile_from_spotify(profile: UserProfile, limit=15):
     """
     Build/refresh the user's profile:
     - Fetch top Spotify tracks
@@ -113,83 +113,75 @@ def build_user_audio_profile_from_spotify(profile: UserProfile, limit=30):
     - Ensure a UserTrack exists linking user <-> track
     """
     access_token = refresh_access_token(profile)
-    top_tracks = get_user_top_tracks(access_token, limit)
 
-    profile.sync_in_progress = True
-    profile.sync_done = 0
-    profile.sync_total = limit
-    profile.save(update_fields=["sync_in_progress", "sync_done", "sync_total"])
+    if not access_token:
+        profile.sync_in_progress = False
+        profile.save(update_fields=["sync_in_progress"])
+        return
 
-    for t in top_tracks:
-        # Global track for this Spotify ID
-        global_track, created = GlobalTrack.objects.get_or_create(
-            spotify_id=t["id"],
-            defaults={
-                "name": t["name"],
-                "artists": t["artists"],
-                "artist_ids": t["artist_ids"],
-                "album_image": t["album_image"],
-                "source": "Spotify",
-            },
-        )
+    try:
+        top_tracks = get_user_top_tracks(access_token, limit)
 
-        # If we already have mood/lyrics/genres etc, we can skip heavy work
-        if (
-            not created
-            and global_track.lyrics
-            and global_track.mood
-            and global_track.genres
-        ):
-            # Still ensure the user has a UserTrack pointing here
-            UserTrack.objects.get_or_create(
-                user_profile=profile,
-                track=global_track,
+        profile.sync_in_progress = True
+        profile.sync_done = 0
+        profile.sync_total = limit
+        profile.save(update_fields=["sync_in_progress", "sync_done", "sync_total"])
+
+        for t in top_tracks:
+            global_track, created = GlobalTrack.objects.get_or_create(
+                spotify_id=t["id"],
+                defaults={
+                    "name": t["name"],
+                    "artists": t["artists"],
+                    "artist_ids": t["artist_ids"],
+                    "album_image": t["album_image"],
+                    "source": "Spotify",
+                },
             )
-            continue
 
-        #  Lyrics + emotion + mood (only if missing and not flagged missing)
-        if (created or not global_track.lyrics) and not global_track.lyrics_missing:
-            lyrics = fetch_lyrics(t["name"], ", ".join(t["artists"]))
-            if lyrics:
-                global_track.lyrics = lyrics
+            if (
+                not created
+                and global_track.lyrics
+                and global_track.mood
+                and global_track.genres
+            ):
+                UserTrack.objects.get_or_create(user_profile=profile, track=global_track)
+                profile.sync_done += 1
+                profile.save(update_fields=["sync_done"])
+                continue
 
-                val, energy = classify_lyrics_emotion(lyrics)
-                global_track.lyric_valence = val
-                global_track.lyric_energy = energy
+            if (created or not global_track.lyrics) and not global_track.lyrics_missing:
+                lyrics = fetch_lyrics(t["name"], ", ".join(t["artists"]))
+                if lyrics:
+                    global_track.lyrics = lyrics
+                    val, energy = classify_lyrics_emotion(lyrics)
+                    global_track.lyric_valence = val
+                    global_track.lyric_energy = energy
+                    global_track.mood = classify_mood(val, energy)
+                else:
+                    global_track.lyrics_missing = True
 
-                global_track.mood = classify_mood(val, energy)
-                print("Mood:", global_track.mood)
-            else:
-                global_track.lyrics_missing = True
+            if t["artist_ids"] and not global_track.genres:
+                global_track.genres = get_artist_genres(access_token, t["artist_ids"][0])
 
-        # Genres (if we have at least one Spotify artist)
-        if t["artist_ids"] and not global_track.genres:
-            genres = get_artist_genres(access_token, t["artist_ids"][0])
-            global_track.genres = genres
+            if not global_track.soundcloud_id or not global_track.soundcloud_url:
+                artists_str = " ".join(t["artists"])
+                query = f"{t['name']} {artists_str}".strip()
+                sc = search_soundcloud_track(query, settings.SOUNDCLOUD_CLIENT_ID)
+                if sc:
+                    global_track.soundcloud_id = str(sc["soundcloud_id"])
+                    global_track.soundcloud_url = sc["soundcloud_url"]
 
-        # SoundCloud info (if missing)
-        if not global_track.soundcloud_id or not global_track.soundcloud_url:
-            artists_str = " ".join(t["artists"])  # e.g. "Drake 21 Savage"
-            query = f"{t['name']} {artists_str}".strip()
+            global_track.save()
+            UserTrack.objects.get_or_create(user_profile=profile, track=global_track)
 
-            sc = search_soundcloud_track(query, settings.SOUNDCLOUD_CLIENT_ID)
-            print("SEARCH:", query, "=>", sc)
+            profile.sync_done += 1
+            profile.save(update_fields=["sync_done"])
 
-            if sc:
-                global_track.soundcloud_id = str(sc["soundcloud_id"])
-                global_track.soundcloud_url = sc["soundcloud_url"]
-
-        global_track.save()
-
-        # Ensure a UserTrack exists for this user
-        UserTrack.objects.get_or_create(
-            user_profile=profile,
-            track=global_track,
-        )
-
-        profile.sync_done += 1
-        profile.save(update_fields=["sync_done"])
-
+        profile.profile_built = True
+    finally:
+        profile.sync_in_progress = False
+        profile.save(update_fields=["sync_in_progress", "profile_built"])
 
 def recommend_tracks_for_mood(profile: UserProfile, selected_mood: str, limit=30):
     """
