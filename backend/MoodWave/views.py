@@ -18,11 +18,17 @@ from .services.api_serializer import RegisterSerializer
 
 
 @api_view(['GET'])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
 def api_top_tracks(request):
-    profile = request.user.userprofile
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
 
     # Refresh Spotify token
     access_token = refresh_access_token(profile)
+
+    if not access_token:
+        # Spotify not connected (or refresh failed) - nothing to show yet
+        return JsonResponse({"top_tracks": []}, status=200)
 
     # Fetch User's top 5 songs
     top_tracks = get_user_top_tracks(access_token, limit=5)
@@ -44,7 +50,7 @@ def api_top_tracks(request):
 @authentication_classes([TokenAuthentication])
 @permission_classes([IsAuthenticated])
 def api_save_playlist(request):
-    user_profile = request.user.userprofile
+    user_profile, _ = UserProfile.objects.get_or_create(user=request.user)
 
     name = request.data.get("name", "MoodWave Mix")
     tracks_data = request.data.get("tracks", [])
@@ -120,7 +126,7 @@ def api_save_playlist(request):
 @api_view(["GET"])
 @authentication_classes([TokenAuthentication])
 def user_playlists(request):
-    profile = request.user.userprofile
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
 
     playlists = []
     for p in profile.playlists.all().order_by("-created_at"):
@@ -149,10 +155,12 @@ def api_get_playlist(request):
     if not playlist_id:
         return Response({"error": "Missing playlist id"}, status=400)
 
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+
     try:
         playlist = Playlist.objects.get(
             id=playlist_id,
-            user_profile=request.user.userprofile
+            user_profile=profile
         )
     except Playlist.DoesNotExist:
         return Response({"error": "Playlist not found"}, status=404)
@@ -394,10 +402,10 @@ def userInformation(request):
 
 @api_view(["GET"])
 @authentication_classes([TokenAuthentication])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def user_stats(request):
     user = request.user
-    profile = user.userprofile
+    profile, _ = UserProfile.objects.get_or_create(user=user)
 
     # All Spotify tracks the user has synced
     tracks = GlobalTrack.objects.filter(
