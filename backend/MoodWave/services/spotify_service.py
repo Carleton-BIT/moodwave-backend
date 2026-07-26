@@ -41,8 +41,12 @@ def refresh_access_token(profile: UserProfile):
         "client_secret": settings.SPOTIFY_CLIENT_SECRET,
     }
 
-    r = requests.post(SPOTIFY_TOKEN_URL, data=data)
-    token_data = r.json()
+    try:
+        r = requests.post(SPOTIFY_TOKEN_URL, data=data, timeout=10)
+        token_data = r.json()
+    except (requests.exceptions.RequestException, ValueError):
+        # Network error or non-JSON response from Spotify — bail out cleanly
+        return None
 
     if "access_token" not in token_data:
         # Spotify rejected the refresh (revoked/expired/invalid) — bail out cleanly
@@ -61,7 +65,19 @@ def get_user_top_tracks(access_token, limit=50):
 
     r = requests.get(SPOTIFY_TOP_TRACKS_URL, headers=headers, params=params)
     print("STATUS:", r.status_code)
-    data = r.json()
+
+    if r.status_code != 200:
+        # Spotify rejected the request (expired/invalid token, missing scope,
+        # user not allow-listed on a Development Mode app, rate limit, etc.)
+        # Don't crash the view - just report no tracks.
+        print("SPOTIFY TOP TRACKS ERROR BODY:", r.text[:500])
+        return []
+
+    try:
+        data = r.json()
+    except ValueError:
+        print("SPOTIFY TOP TRACKS: non-JSON response body")
+        return []
 
     tracks = []
     for item in data.get("items", []):
