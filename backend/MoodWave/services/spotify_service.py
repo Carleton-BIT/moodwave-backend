@@ -31,6 +31,9 @@ def refresh_access_token(profile: UserProfile):
     if profile.token_expires_at and profile.token_expires_at > timezone.now():
         return profile.access_token
 
+    if not profile.refresh_token:
+        return None
+
     data = {
         "grant_type": "refresh_token",
         "refresh_token": profile.refresh_token,
@@ -41,13 +44,16 @@ def refresh_access_token(profile: UserProfile):
     r = requests.post(SPOTIFY_TOKEN_URL, data=data)
     token_data = r.json()
 
+    if "access_token" not in token_data:
+        # Spotify rejected the refresh (revoked/expired/invalid) — bail out cleanly
+        return None
+
     profile.access_token = token_data["access_token"]
     profile.token_expires_at = timezone.now() + timedelta(
         seconds=token_data.get("expires_in", 3600)
     )
     profile.save(update_fields=["access_token", "token_expires_at"])
     return profile.access_token
-
 
 def get_user_top_tracks(access_token, limit=50):
     headers = {"Authorization": f"Bearer {access_token}"}
