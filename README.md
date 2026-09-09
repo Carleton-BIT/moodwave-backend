@@ -2,7 +2,7 @@
 
 The server behind [MoodWave](https://moodwave-frontend.vercel.app), an app that turns your Spotify listening habits into mood-based playlists you can play right in the browser.
 
-Frontend repo: [MoodWave-Frontend](https://github.com/Carleton-BIT/MoodWave-Frontend)
+Frontend repo: [MoodWave-Frontend](https://github.com/Malik-Y/moodwave-frontend.git)
 Live API: `https://moodwave-6b5s.onrender.com`
 
 ## What it does
